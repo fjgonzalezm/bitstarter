@@ -24,6 +24,7 @@ References:
 var fs = require('fs');
 var program = require('commander');
 var cheerio = require('cheerio');
+var rest = require('restler');
 var HTMLFILE_DEFAULT = "index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
 
@@ -37,23 +38,38 @@ var assertFileExists = function(infile) {
 };
 
 var cheerioHtmlFile = function(htmlfile) {
-    return cheerio.load(fs.readFileSync(htmlfile));
+    return cheerio.load(htmlfile);
 };
 
 var loadChecks = function(checksfile) {
     return JSON.parse(fs.readFileSync(checksfile));
 };
 
-var checkHtmlFile = function(htmlfile, checksfile) {
-    $ = cheerioHtmlFile(htmlfile);
+var validator = function($, checksfile, handler) {
     var checks = loadChecks(checksfile).sort();
     var out = {};
     for(var ii in checks) {
         var present = $(checks[ii]).length > 0;
         out[checks[ii]] = present;
     }
-    return out;
+    handler(out);
+}
+
+var checkHtmlFile = function(htmlfile, checksfile) {
+    var re = new RegExp("^https{0,1}:\/\/");
+    if (re.test(htmlfile)) {
+       rest.get(htmlfile).on("success", function(response) {
+         validator(cheerioHtmlFile(response), checksfile, outJson);
+       });
+    } else {
+      validator(cheerioHtmlFile(fs.readFileSync(htmlfile)), checksfile, outJson); 
+    }     
 };
+
+var outJson = function(json) {
+    var _outJson = JSON.stringify(json, null, 4);
+    console.log(_outJson);
+}
 
 var clone = function(fn) {
     // Workaround for commander.js issue.
@@ -65,10 +81,9 @@ if(require.main == module) {
     program
         .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
         .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
+        .option('-u, --url <html_url>', 'URL to html document')
         .parse(process.argv);
-    var checkJson = checkHtmlFile(program.file, program.checks);
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
+    var checkJson = checkHtmlFile((program.url) ? program.url : program.file, program.checks);
 } else {
     exports.checkHtmlFile = checkHtmlFile;
 }
